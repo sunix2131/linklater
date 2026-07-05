@@ -1,43 +1,119 @@
 # Later
 
-Later is a local desktop app for saving links and bringing them back when they matter: tonight, tomorrow, in a few days, on the weekend, next month, or just in the archive.
+Later — локальное desktop-приложение для ссылок, к которым нужно вернуться вовремя.
 
-The app stores all data on the current device. There are no accounts, analytics, cloud sync, ads, or external backend services.
+Это не обычный менеджер закладок. Идея проще: ты сохраняешь ссылку сейчас, выбираешь момент возврата, а Later показывает её в нужный день.
 
-## Features
+Например:
 
-- Add links manually, from the clipboard, or by dropping text into the window.
-- Normalize URLs and remove tracking parameters in the stored canonical URL while preserving the original URL.
-- Fetch title, description, and favicon in a background Qt worker.
-- Schedule reminders, postpone links, mark links as read, archive, delete, and restore.
-- Browse Today, Queue, Archive, Search, and Settings pages.
-- Search with SQLite FTS5 when available and `LIKE` fallback otherwise.
-- Export and import ZIP archives, plus CSV export.
-- Use light, dark, and system theme settings.
-- Use local SQLite with WAL mode and standard OS app directories.
+- статью — сегодня вечером;
+- видео — завтра;
+- курс — через неделю;
+- товар — в ближайшие выходные;
+- вакансию — в конкретную дату;
+- полезный сайт — без напоминания, просто в архив.
 
-## How Reminders Work
+Все данные остаются на твоём компьютере. В Later нет аккаунтов, облака, синхронизации, аналитики, рекламы и внешнего backend-сервера.
 
-Notifications work while Later is running or minimized to the system tray. If the app is fully closed, it does not pretend to keep scheduling in the background. Due links are resolved and shown the next time Later starts.
+## Что умеет
 
-Later does not use a cloud server for reminders.
+- Добавлять ссылки вручную, из буфера обмена или drag-and-drop.
+- Нормализовать URL и удалять tracking-параметры из сохранённой canonical-ссылки.
+- Сохранять оригинальный URL без изменений.
+- Загружать title, description и favicon в фоне, не подвешивая интерфейс.
+- Назначать напоминания: сегодня вечером, завтра, через 3 дня, в выходные, через неделю, через месяц или на выбранную дату.
+- Показывать ссылки в разделе «На сегодня», когда пришло время к ним вернуться.
+- Откладывать, открывать, отмечать прочитанными, архивировать, удалять и восстанавливать ссылки.
+- Искать по названию, заметке, домену и URL.
+- Экспортировать и импортировать данные через ZIP.
+- Экспортировать ссылки в CSV.
+- Работать с SQLite локально, с FTS5-поиском при поддержке текущей сборки SQLite.
+- Переключать светлую, тёмную и системную тему.
 
-## Development
+## Как это работает
+
+1. Нажми «Добавить ссылку».
+2. Вставь URL.
+3. Выбери, когда Later должен вернуть ссылку.
+4. Когда срок наступит, ссылка появится на первом экране.
+
+Если приложение полностью закрыто, оно не показывает уведомления в фоне. При следующем запуске Later найдёт просроченные ссылки и покажет их в разделе «На сегодня».
+
+Если Later запущен или свёрнут в системный трей, он проверяет напоминания и может показать системное уведомление.
+
+## Приватность
+
+Later работает локально:
+
+- база данных хранится на устройстве;
+- заметки и теги не отправляются в сеть;
+- URL не отправляются на внешний backend;
+- метаданные загружаются напрямую с сайта, который ты сохранил;
+- логи хранятся локально;
+- телеметрии и аналитики нет.
+
+## Установка для разработки
+
+Нужен Python 3.12+.
 
 ```bash
-python -m venv .venv
+cd "/Users/runix/qr go"
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-python main.py
-pytest
-ruff check .
-mypy src/later
 ```
 
-## Privacy
+## Запуск
 
-Saved links, notes, tags, settings, favicons, exports, and logs stay in the standard local app directories for the operating system. Metadata requests are made directly from this machine to the saved site.
+```bash
+cd "/Users/runix/qr go"
+.venv/bin/python main.py
+```
 
-## Packaging
+## Проверка
 
-Native releases should be produced on each target OS with `pyside6-deploy`. The included CI validates linting, typing, and tests; release artifacts are intentionally platform-native.
+```bash
+cd "/Users/runix/qr go"
+.venv/bin/python -m pytest
+.venv/bin/ruff check .
+.venv/bin/mypy src/later
+```
+
+## Структура проекта
+
+```text
+src/later/
+  database.py        SQLite, миграции, FTS5 и репозиторий ссылок
+  domain.py          статусы, сущности и helpers времени
+  url_service.py     валидация и нормализация URL
+  scheduling.py      расчёт быстрых дат напоминаний
+  metadata.py        загрузка title, description и favicon
+  import_export.py   импорт и экспорт ZIP/CSV
+  presentation/      PySide6-интерфейс
+tests/               unit и integration tests
+docs/                архитектура, приватность, релиз
+packaging/           заготовка pyside6-deploy
+```
+
+## Сборка
+
+Для native-сборок используется `pyside6-deploy`. Пакеты нужно собирать на целевой ОС:
+
+- macOS — на macOS;
+- Windows — на Windows;
+- Linux — на Linux.
+
+Не стоит собирать Windows-пакет на macOS или macOS-пакет на Linux.
+
+## Ограничения
+
+- Нет аккаунтов и синхронизации.
+- Нет браузерного расширения.
+- Нет Telegram-бота.
+- Нет AI-саммаризации.
+- Нет сохранения полного текста статьи.
+- Уведомления работают только пока приложение запущено или находится в трее.
+
+## Лицензия
+
+MIT. См. [LICENSE](LICENSE).
