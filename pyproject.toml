@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "later"
+version = "0.1.0"
+description = "Local desktop app that brings saved links back at the right time."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "beautifulsoup4>=4.12",
+  "certifi>=2024.2",
+  "httpx>=0.27",
+  "idna>=3.6",
+  "platformdirs>=4.2",
+  "pydantic>=2.6",
+  "PySide6>=6.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "coverage>=7.4",
+  "mypy>=1.8",
+  "pytest>=8.0",
+  "pytest-qt>=4.4",
+  "respx>=0.21",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+later = "later.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/later"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["later"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
