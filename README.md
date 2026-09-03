@@ -57,7 +57,6 @@ Later работает локально:
 Нужен Python 3.12+.
 
 ```bash
-cd "/Users/runix/qr go"
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -66,14 +65,12 @@ pip install -e ".[dev]"
 ## Запуск
 
 ```bash
-cd "/Users/runix/qr go"
 .venv/bin/python main.py
 ```
 
 ## Проверка
 
 ```bash
-cd "/Users/runix/qr go"
 .venv/bin/python -m pytest
 .venv/bin/ruff check .
 .venv/bin/mypy src/later
