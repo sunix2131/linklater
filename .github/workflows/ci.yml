@@ -19,7 +19,7 @@ jobs:
       - run: ruff format --check .
       - run: ruff check .
       - run: mypy src/later
-      - run: coverage run -m pytest
+      - run: coverage run --source=later -m pytest
         env:
           QT_QPA_PLATFORM: offscreen
-      - run: coverage report
+      - run: coverage report --fail-under=65
