@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ssl
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -9,6 +10,9 @@ import httpx
 from bs4 import BeautifulSoup
 
 from later.domain import LinkMetadata
+
+MAX_HTML_SIZE = 2 * 1024 * 1024
+MAX_FAVICON_SIZE = 1024 * 1024
 
 
 class MetadataClient:
@@ -22,15 +26,15 @@ class MetadataClient:
                 timeout=self.timeout_seconds,
                 follow_redirects=True,
                 max_redirects=5,
-                verify=certifi.where(),
+                verify=ssl.create_default_context(cafile=certifi.where()),
                 headers={"User-Agent": "Later/0.1 local metadata fetcher"},
             ) as client:
-                response = client.get(url)
-                response.raise_for_status()
-                content_type = response.headers.get("content-type", "")
-                if "html" not in content_type.lower():
-                    return LinkMetadata(title=domain, error="Страница не является HTML-документом.")
-                html = response.content[: 2 * 1024 * 1024]
+                with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "")
+                    if "html" not in content_type.lower():
+                        return LinkMetadata(title=domain, error="Страница не является HTML-документом.")
+                    html, _ = self._read_limited(response, MAX_HTML_SIZE)
                 soup = BeautifulSoup(html, "html.parser")
                 title = self._first(
                     self._meta(soup, "property", "og:title"),
@@ -47,7 +51,10 @@ class MetadataClient:
                 )
                 favicon_path = None
                 if fetch_favicon:
-                    favicon_path = self._fetch_favicon(client, soup, url, normalized_url, domain)
+                    try:
+                        favicon_path = self._fetch_favicon(client, soup, url, normalized_url, domain)
+                    except (httpx.HTTPError, OSError):
+                        favicon_path = None
                 return LinkMetadata(title=title, description=description, favicon_path=favicon_path)
         except Exception as exc:
             return LinkMetadata(title=domain, description="", error=str(exc))
@@ -56,24 +63,43 @@ class MetadataClient:
         self, client: httpx.Client, soup: BeautifulSoup, page_url: str, normalized_url: str, domain: str
     ) -> str | None:
         href = None
-        for rel in ("icon", "shortcut icon"):
-            node = soup.find("link", rel=lambda value, rel=rel: value and rel in " ".join(value).lower())
-            if node and node.get("href"):
+        for node in soup.find_all("link"):
+            rel_value = node.get("rel")
+            if isinstance(rel_value, str):
+                rel_values = rel_value.split()
+            elif rel_value is None:
+                rel_values = []
+            else:
+                rel_values = rel_value
+            rel_names = {str(value).lower() for value in rel_values}
+            if "icon" in rel_names and node.get("href"):
                 href = str(node["href"])
                 break
         icon_url = urljoin(page_url, href) if href else f"{urlsplit(page_url).scheme}://{domain}/favicon.ico"
         if urlsplit(icon_url).hostname != domain:
             return None
-        response = client.get(icon_url)
-        response.raise_for_status()
-        content = response.content[: 1024 * 1024 + 1]
-        if len(content) > 1024 * 1024:
-            return None
+        with client.stream("GET", icon_url) as response:
+            response.raise_for_status()
+            if "text/html" in response.headers.get("content-type", "").lower():
+                return None
+            content, truncated = self._read_limited(response, MAX_FAVICON_SIZE)
+            if truncated:
+                return None
         suffix = Path(urlsplit(icon_url).path).suffix or ".ico"
         name = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest() + suffix[:8]
         path = self.favicons_dir / name
         path.write_bytes(content)
         return str(path)
+
+    def _read_limited(self, response: httpx.Response, limit: int) -> tuple[bytes, bool]:
+        content = bytearray()
+        for chunk in response.iter_bytes():
+            remaining = limit - len(content)
+            if len(chunk) > remaining:
+                content.extend(chunk[:remaining])
+                return bytes(content), True
+            content.extend(chunk)
+        return bytes(content), False
 
     def _meta(self, soup: BeautifulSoup, attr: str, value: str) -> str:
         node = soup.find("meta", attrs={attr: value})
