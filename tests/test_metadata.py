@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import respx
 
@@ -25,14 +27,12 @@ def test_fetches_page_metadata_and_same_domain_favicon(tmp_path) -> None:
         return_value=httpx.Response(200, headers={"content-type": "image/png"}, content=b"png")
     )
 
-    result = MetadataClient(tmp_path).fetch(
-        "https://example.com/article", "https://example.com/article", "example.com"
-    )
+    result = MetadataClient(tmp_path).fetch("https://example.com/article", "https://example.com/article", "example.com")
 
     assert result.title == "Paper title"
     assert result.description == "Paper description"
     assert result.favicon_path is not None
-    assert (tmp_path / result.favicon_path.split("/")[-1]).read_bytes() == b"png"
+    assert Path(result.favicon_path).read_bytes() == b"png"
 
 
 @respx.mock
@@ -45,9 +45,7 @@ def test_does_not_request_cross_domain_favicon(tmp_path) -> None:
         )
     )
 
-    result = MetadataClient(tmp_path).fetch(
-        "https://example.com/article", "https://example.com/article", "example.com"
-    )
+    result = MetadataClient(tmp_path).fetch("https://example.com/article", "https://example.com/article", "example.com")
 
     assert result.title == "Page"
     assert result.favicon_path is None
@@ -70,9 +68,7 @@ def test_rejects_oversized_favicon(tmp_path) -> None:
         )
     )
 
-    result = MetadataClient(tmp_path).fetch(
-        "https://example.com/article", "https://example.com/article", "example.com"
-    )
+    result = MetadataClient(tmp_path).fetch("https://example.com/article", "https://example.com/article", "example.com")
 
     assert result.favicon_path is None
     assert list(tmp_path.iterdir()) == []
