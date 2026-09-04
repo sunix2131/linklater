@@ -75,6 +75,24 @@ CREATE INDEX IF NOT EXISTS idx_reminders_scheduled ON reminders(scheduled_at_utc
 CREATE INDEX IF NOT EXISTS idx_activities_link_id_created ON activities(link_id, created_at DESC);
 """
 
+LINK_IMPORT_COLUMNS = (
+    "original_url",
+    "normalized_url",
+    "title",
+    "description",
+    "domain",
+    "favicon_path",
+    "preview_image_path",
+    "note",
+    "status",
+    "created_at",
+    "updated_at",
+    "opened_at",
+    "completed_at",
+    "archived_at",
+    "deleted_at",
+)
+
 
 class Database:
     def __init__(self, path: Path) -> None:
@@ -393,58 +411,66 @@ class LinkRepository:
             }
 
     def import_tables(self, data: dict[str, list[dict[str, object]]], conflict: str = "skip") -> tuple[int, int]:
+        if conflict not in {"skip", "update", "separate"}:
+            raise ValueError("unknown import conflict mode")
         links_added = tags_added = 0
+        tag_ids: dict[str, str] = {}
+        link_ids: dict[str, str] = {}
+        skipped_link_ids: set[str] = set()
         with self.db.connect() as conn:
             for row in data.get("tags", []):
-                try:
+                source_id = str(row["id"])
+                existing = conn.execute("SELECT id FROM tags WHERE name=?", (row["name"],)).fetchone()
+                if existing:
+                    tag_ids[source_id] = existing["id"]
+                    if conflict == "update":
+                        conn.execute("UPDATE tags SET color=? WHERE id=?", (row["color"], existing["id"]))
+                else:
+                    target_id = source_id
+                    if conn.execute("SELECT 1 FROM tags WHERE id=?", (target_id,)).fetchone():
+                        target_id = self._id()
                     conn.execute(
                         "INSERT INTO tags VALUES (?, ?, ?, ?)",
-                        tuple(row[k] for k in ("id", "name", "color", "created_at")),
+                        (target_id, row["name"], row["color"], row["created_at"]),
                     )
+                    tag_ids[source_id] = target_id
                     tags_added += 1
-                except sqlite3.IntegrityError:
-                    if conflict == "update":
-                        conn.execute("UPDATE tags SET color=? WHERE name=?", (row["color"], row["name"]))
             for row in data.get("links", []):
+                source_id = str(row["id"])
                 existing = conn.execute(
                     "SELECT id FROM links WHERE normalized_url=? AND status IN ('scheduled','due','archived')",
                     (row["normalized_url"],),
                 ).fetchone()
                 if existing and conflict == "skip":
+                    skipped_link_ids.add(source_id)
                     continue
                 if existing and conflict == "update":
-                    columns = [k for k in row if k != "id"]
+                    target_id = existing["id"]
                     conn.execute(
-                        f"UPDATE links SET {','.join(f'{k}=?' for k in columns)} WHERE id=?",
-                        [row[k] for k in columns] + [existing["id"]],
+                        f"UPDATE links SET {','.join(f'{column}=?' for column in LINK_IMPORT_COLUMNS)} WHERE id=?",
+                        [row[column] for column in LINK_IMPORT_COLUMNS] + [target_id],
                     )
                 else:
-                    values = [
-                        row.get(k)
-                        for k in (
-                            "id",
-                            "original_url",
-                            "normalized_url",
-                            "title",
-                            "description",
-                            "domain",
-                            "favicon_path",
-                            "preview_image_path",
-                            "note",
-                            "status",
-                            "created_at",
-                            "updated_at",
-                            "opened_at",
-                            "completed_at",
-                            "archived_at",
-                            "deleted_at",
+                    target_id = source_id
+                    id_exists = conn.execute("SELECT 1 FROM links WHERE id=?", (target_id,)).fetchone()
+                    if id_exists and conflict == "skip":
+                        skipped_link_ids.add(source_id)
+                        continue
+                    if id_exists and conflict == "update":
+                        conn.execute(
+                            f"UPDATE links SET {','.join(f'{column}=?' for column in LINK_IMPORT_COLUMNS)} WHERE id=?",
+                            [row[column] for column in LINK_IMPORT_COLUMNS] + [target_id],
                         )
-                    ]
-                    if conflict == "separate" and existing:
-                        values[0] = self._id()
+                        link_ids[source_id] = target_id
+                        links_added += 1
+                        continue
+                    if existing or id_exists:
+                        target_id = self._id()
+                    link_values = [target_id, *(row[column] for column in LINK_IMPORT_COLUMNS)]
                     conn.execute(
-                        "INSERT OR IGNORE INTO links VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values
+                        "INSERT INTO links VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", link_values
                     )
+                link_ids[source_id] = target_id
                 links_added += 1
             for table, cols in {
                 "reminders": (
@@ -463,9 +489,28 @@ class LinkRepository:
                 "activities": ("id", "link_id", "activity_type", "payload_json", "created_at"),
             }.items():
                 for row in data.get(table, []):
+                    source_link_id = str(row["link_id"])
+                    if source_link_id in skipped_link_ids:
+                        continue
+                    relation_values = {column: row[column] for column in cols}
+                    relation_values["link_id"] = link_ids.get(source_link_id, source_link_id)
+                    if table == "link_tags":
+                        source_tag_id = str(row["tag_id"])
+                        relation_values["tag_id"] = tag_ids.get(source_tag_id, source_tag_id)
                     conn.execute(
                         f"INSERT OR IGNORE INTO {table} VALUES ({','.join('?' for _ in cols)})",
-                        [row.get(col) for col in cols],
+                        [relation_values[column] for column in cols],
+                    )
+            for row in data.get("settings", []):
+                if conflict == "update":
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings(key, value) VALUES (?, ?)",
+                        (row["key"], row["value"]),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)",
+                        (row["key"], row["value"]),
                     )
         return links_added, tags_added
 
