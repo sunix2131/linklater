@@ -82,9 +82,7 @@ class ImportExportService:
                 if len(members) != sum(not item.is_dir() for item in archive.infolist()):
                     raise ValueError("Архив содержит повторяющиеся имена файлов.")
 
-                allowed = {f"{EXPORT_ROOT}/manifest.json"} | {
-                    f"{EXPORT_ROOT}/{name}.json" for name in TABLE_COLUMNS
-                }
+                allowed = {f"{EXPORT_ROOT}/manifest.json"} | {f"{EXPORT_ROOT}/{name}.json" for name in TABLE_COLUMNS}
                 unexpected = set(members) - allowed
                 if unexpected:
                     raise ValueError("Архив содержит файлы, не относящиеся к экспорту Later.")
@@ -124,9 +122,7 @@ class ImportExportService:
             raise ValueError("Не удалось прочитать экспорт Later.") from exc
         return self.repo.import_tables(data, conflict)
 
-    def _read_json(
-        self, archive: zipfile.ZipFile, members: dict[str, zipfile.ZipInfo], name: str
-    ) -> object:
+    def _read_json(self, archive: zipfile.ZipFile, members: dict[str, zipfile.ZipInfo], name: str) -> object:
         member = members.get(name)
         if member is None:
             raise KeyError(name)

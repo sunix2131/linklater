@@ -33,6 +33,7 @@ python main.py
 
 ```bash
 python -m pytest
+python -m ruff format --check .
 python -m ruff check .
 python -m mypy src/later
 ```
