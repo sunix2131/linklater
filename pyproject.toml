@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "later"
+name = "linklater"
 version = "0.1.0"
 description = "Local desktop app that brings saved links back at the right time."
 readme = "README.md"
@@ -30,6 +30,7 @@ dev = [
 ]
 
 [project.scripts]
+linklater = "later.main:main"
 later = "later.main:main"
 
 [tool.hatch.build.targets.wheel]
