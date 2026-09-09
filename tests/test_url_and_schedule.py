@@ -12,7 +12,7 @@ from later.url_service import UrlError, UrlNormalizationService
 def test_normalizes_url_and_removes_tracking_params() -> None:
     result = UrlNormalizationService().normalize("Example.COM:443/path?b=2&utm_source=x&a=1&fbclid=no#section")
 
-    assert result.original == "Example.COM:443/path?b=2&utm_source=x&a=1&fbclid=no#section"
+    assert result.original == "https://Example.COM:443/path?b=2&utm_source=x&a=1&fbclid=no#section"
     assert result.normalized == "https://example.com/path?a=1&b=2"
     assert result.domain == "example.com"
 
@@ -20,6 +20,23 @@ def test_normalizes_url_and_removes_tracking_params() -> None:
 def test_rejects_blocked_scheme() -> None:
     with pytest.raises(UrlError):
         UrlNormalizationService().normalize("javascript:alert(1)")
+
+
+@pytest.mark.parametrize("url", ["http://foo.localhost/", "http://printer/", "http://[::1]/", "http://224.0.0.1/"])
+def test_rejects_non_public_targets(url: str) -> None:
+    with pytest.raises(UrlError):
+        UrlNormalizationService().normalize(url)
+
+
+def test_ipv6_and_missing_scheme_keep_a_browser_openable_url() -> None:
+    service = UrlNormalizationService()
+    assert (
+        service.normalize("example.com/a?utm_source=feed#paragraph").original
+        == "https://example.com/a?utm_source=feed#paragraph"
+    )
+    assert service.normalize("http://[::1]:8080/a", allow_local=True).normalized == "http://[::1]:8080/a"
+    with pytest.raises(UrlError):
+        service.normalize("https://user:password@example.com")
 
 
 def test_rejects_local_url_by_default() -> None:

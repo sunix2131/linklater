@@ -538,7 +538,11 @@ class MainWindow(QMainWindow):
         self._refresh_all()
 
     def _start_metadata(self, link: Link) -> None:
-        client = MetadataClient(self.paths.favicons_dir, self.settings.metadata_timeout_seconds)
+        client = MetadataClient(
+            self.paths.favicons_dir,
+            self.settings.metadata_timeout_seconds,
+            allow_local=self.settings.allow_local_network_urls,
+        )
         task = MetadataTask(
             link.id, client, link.original_url, link.normalized_url, link.domain, self.settings.fetch_favicons
         )
@@ -622,7 +626,16 @@ class MainWindow(QMainWindow):
     def _link_action(self, link_id: str, action: str) -> None:
         if action == "open":
             link = self.repo.get(link_id)
-            if webbrowser.open(link.original_url):
+            try:
+                url = (
+                    UrlNormalizationService()
+                    .normalize(link.original_url, allow_local=self.settings.allow_local_network_urls)
+                    .original
+                )
+            except UrlError as error:
+                QMessageBox.warning(self, "LinkLater", str(error))
+                return
+            if webbrowser.open(url):
                 self.repo.action(link_id, "open")
             else:
                 QMessageBox.warning(self, "Later", "Не удалось открыть браузер.")

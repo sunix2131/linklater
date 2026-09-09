@@ -9,6 +9,28 @@ from later.metadata import MAX_FAVICON_SIZE, MetadataClient
 
 
 @respx.mock
+def test_page_redirect_cannot_access_loopback(tmp_path) -> None:
+    respx.get("https://example.com/article").respond(302, headers={"location": "http://127.0.0.1/admin"})
+    private = respx.get("http://127.0.0.1/admin").respond(200, text="private")
+    result = MetadataClient(tmp_path).fetch("https://example.com/article", "https://example.com/article", "example.com")
+    assert result.error
+    assert not private.called
+
+
+@respx.mock
+def test_favicon_redirect_cannot_escape_domain(tmp_path) -> None:
+    respx.get("https://example.com/article").respond(
+        200, headers={"content-type": "text/html"}, text='<title>Article</title><link rel="icon" href="/icon">'
+    )
+    respx.get("https://example.com/icon").respond(302, headers={"location": "https://elsewhere.example/icon"})
+    external = respx.get("https://elsewhere.example/icon").respond(200, content=b"icon")
+    result = MetadataClient(tmp_path).fetch("https://example.com/article", "https://example.com/article", "example.com")
+    assert result.title == "Article"
+    assert result.favicon_path is None
+    assert not external.called
+
+
+@respx.mock
 def test_fetches_page_metadata_and_same_domain_favicon(tmp_path) -> None:
     respx.get("https://example.com/article").mock(
         return_value=httpx.Response(

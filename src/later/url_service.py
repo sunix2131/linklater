@@ -26,7 +26,10 @@ class UrlNormalizationService:
         original = value.strip()
         if not original:
             raise UrlError("Введите URL.")
-        raw_scheme = urlsplit(original).scheme.lower()
+        try:
+            raw_scheme = urlsplit(original).scheme.lower()
+        except ValueError as exc:
+            raise UrlError("Ссылка имеет неподдерживаемый формат.") from exc
         if raw_scheme in BLOCKED_SCHEMES:
             raise UrlError("Ссылка имеет неподдерживаемый формат.")
         candidate = original if "://" in original else f"https://{original}"
@@ -36,12 +39,17 @@ class UrlNormalizationService:
             raise UrlError("Ссылка имеет неподдерживаемый формат.")
         if not parts.hostname:
             raise UrlError("В ссылке не найден домен.")
+        if parts.username is not None or parts.password is not None:
+            raise UrlError("Ссылки с логином или паролем не поддерживаются.")
 
         host = parts.hostname.rstrip(".").lower()
         try:
-            ascii_host = idna.encode(host).decode("ascii")
-        except idna.IDNAError as exc:
-            raise UrlError("Домен в ссылке некорректен.") from exc
+            ascii_host = str(ipaddress.ip_address(host))
+        except ValueError:
+            try:
+                ascii_host = idna.encode(host).decode("ascii")
+            except idna.IDNAError as exc:
+                raise UrlError("Домен в ссылке некорректен.") from exc
         if not allow_local and self._is_local(ascii_host):
             raise UrlError("Локальные и сетевые URL отключены в настройках.")
 
@@ -49,7 +57,7 @@ class UrlNormalizationService:
             port = parts.port
         except ValueError as exc:
             raise UrlError("Порт в ссылке некорректен.") from exc
-        netloc = ascii_host
+        netloc = f"[{ascii_host}]" if ":" in ascii_host else ascii_host
         if port and not ((scheme == "http" and port == 80) or (scheme == "https" and port == 443)):
             netloc = f"{netloc}:{port}"
         path = quote(unquote(parts.path or "/"), safe="/:@!$&'()*+,;=-._~")
@@ -60,13 +68,13 @@ class UrlNormalizationService:
         ]
         query = urlencode(sorted(query_items), doseq=True)
         normalized = urlunsplit((scheme, netloc, path, query, ""))
-        return NormalizedUrl(original=original, normalized=normalized, domain=ascii_host)
+        return NormalizedUrl(original=candidate, normalized=normalized, domain=ascii_host)
 
     def _is_local(self, host: str) -> bool:
-        if host in {"localhost"} or host.endswith(".local"):
+        if host == "localhost" or host.endswith((".local", ".localhost")):
             return True
         try:
             ip = ipaddress.ip_address(host.strip("[]"))
         except ValueError:
-            return False
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_unspecified
+            return "." not in host
+        return not ip.is_global or ip.is_multicast

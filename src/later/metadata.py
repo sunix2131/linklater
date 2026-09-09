@@ -10,24 +10,31 @@ import httpx
 from bs4 import BeautifulSoup
 
 from later.domain import LinkMetadata
+from later.url_service import UrlError, UrlNormalizationService
 
 MAX_HTML_SIZE = 2 * 1024 * 1024
 MAX_FAVICON_SIZE = 1024 * 1024
 
 
 class MetadataClient:
-    def __init__(self, favicons_dir: Path, timeout_seconds: int = 10) -> None:
+    def __init__(self, favicons_dir: Path, timeout_seconds: int = 10, *, allow_local: bool = False) -> None:
         self.favicons_dir = favicons_dir
         self.timeout_seconds = timeout_seconds
+        self.allow_local = allow_local
+
+    def _validate_request(self, request: httpx.Request) -> None:
+        UrlNormalizationService().normalize(str(request.url), allow_local=self.allow_local)
 
     def fetch(self, url: str, normalized_url: str, domain: str, *, fetch_favicon: bool = True) -> LinkMetadata:
         try:
+            url = UrlNormalizationService().normalize(url, allow_local=self.allow_local).original
             with httpx.Client(
                 timeout=self.timeout_seconds,
                 follow_redirects=True,
                 max_redirects=5,
                 verify=ssl.create_default_context(cafile=certifi.where()),
-                headers={"User-Agent": "Later/0.1 local metadata fetcher"},
+                headers={"User-Agent": "LinkLater/0.1 local metadata fetcher"},
+                event_hooks={"request": [self._validate_request]},
             ) as client:
                 with client.stream("GET", url) as response:
                     response.raise_for_status()
@@ -52,8 +59,8 @@ class MetadataClient:
                 favicon_path = None
                 if fetch_favicon:
                     try:
-                        favicon_path = self._fetch_favicon(client, soup, url, normalized_url, domain)
-                    except (httpx.HTTPError, OSError):
+                        favicon_path = self._fetch_favicon(client, soup, str(response.url), normalized_url, domain)
+                    except (httpx.HTTPError, OSError, UrlError):
                         favicon_path = None
                 return LinkMetadata(title=title, description=description, favicon_path=favicon_path)
         except Exception as exc:
@@ -78,13 +85,14 @@ class MetadataClient:
         icon_url = urljoin(page_url, href) if href else f"{urlsplit(page_url).scheme}://{domain}/favicon.ico"
         if urlsplit(icon_url).hostname != domain:
             return None
-        with client.stream("GET", icon_url) as response:
+        with client.stream("GET", icon_url, follow_redirects=False) as response:
             response.raise_for_status()
             if "text/html" in response.headers.get("content-type", "").lower():
                 return None
             content, truncated = self._read_limited(response, MAX_FAVICON_SIZE)
             if truncated:
                 return None
+        self.favicons_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(urlsplit(icon_url).path).suffix or ".ico"
         name = hashlib.sha256(normalized_url.encode("utf-8")).hexdigest() + suffix[:8]
         path = self.favicons_dir / name
